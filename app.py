@@ -34,6 +34,8 @@ with st.echo():
     results = t.normality_test(df['Age'], test='shapiro-wilk')
     sns_plot = sns.distplot(df['Age'])
     print(results)
+    print("p-value = {}, significance = {}".format(results.p_value, results.significance))
 
 st.pyplot(sns_plot.figure)
 st.write(results)
+st.write("p-value = {}, significance = {}".format(results.p_value, results.significance))
