@@ -1,7 +1,7 @@
 
 import streamlit as st
 
-st.write("""# Hypothesis tests""")
+st.write("""# Hypothesis test""")
 
 st.write("""### Examples of hypothesis tests using the hermione framework from A3Data""")
 st.write("""### https://github.com/A3Data/hermione""")
