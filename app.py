@@ -169,8 +169,8 @@ st.write("""### Using just a specific test example (no checks are made)""")
 with st.echo():
     p = Preprocessing()
     df = p.clean_data(df)
-    t = Tester()
     df['2xAge'] = df['Age']*2
+    t = Tester()
     t = Tester()
     results = t.correlation_test(df['2xAge'], df['Age'], test = 'kendalltau')
     print(results)
