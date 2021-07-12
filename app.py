@@ -129,12 +129,23 @@ with st.echo():
     df = p.clean_data(df)
     df = p.categ_encoding(df)
     t = Tester()
-    results = t.categorical_test(df['Survived'][:20], df['Sex_female'][:20])
+    results = t.correlation_test(df['Survived'][:20], df['Sex_female'][:20], method='pearson')
     print(results)
-    print("p-value = {}, significance = {}".format(results.p_value, results.significance))
 
 st.write(results)
-st.write("p-value = {}, significance = {}".format(results.p_value, results.significance))
+st.write(results['report'][0])
+
+st.write("""### Normally distributed example""")
+
+with st.echo():
+    p = Preprocessing()
+    df = p.clean_data(df)
+    df['2xAge'] = df['Age']*2
+    t = Tester()
+    results = t.correlation_test(df['2xAge'][:20], df['Sex'][:20])
+    print(results)
+
+st.write(results)
 
 st.write("""### Normally distributed example""")
 
@@ -145,10 +156,8 @@ with st.echo():
     t = Tester()
     results = t.correlation_test(df['2xAge'][:20], df['Age'][:20])
     print(results)
-    print("p-value = {}, significance = {}".format(results.p_value, results.significance))
 
 st.write(results)
-st.write("p-value = {}, significance = {}".format(results.p_value, results.significance))
 
 st.write("""### Not normally distributed example""")
 
@@ -157,12 +166,10 @@ with st.echo():
     df = p.clean_data(df)
     df['2xAge'] = df['Age']*2
     t = Tester()
-    results = t.correlation_test(df['2xAge'], df['Age'])
+    results = t.correlation_test(df['2xAge'], df['Age'].tolist())
     print(results)
-    print("p-value = {}, significance = {}".format(results.p_value, results.significance))
 
 st.write(results)
-st.write("p-value = {}, significance = {}".format(results.p_value, results.significance))
 
 st.write("""### Using just a specific test example (no checks are made)""")
 
@@ -172,9 +179,7 @@ with st.echo():
     df['2xAge'] = df['Age']*2
     t = Tester()
     t = Tester()
-    results = t.correlation_test(df['2xAge'], df['Age'], test = 'kendalltau')
+    results = t.correlation_test(df['2xAge'], df['Age'], method = 'kendall')
     print(results)
-    print("p-value = {}, significance = {}".format(results.p_value, results.significance))
 
 st.write(results)
-st.write("p-value = {}, significance = {}".format(results.p_value, results.significance))

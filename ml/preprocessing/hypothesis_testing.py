@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import pingouin as pg
 from scipy.stats import shapiro
 from scipy.stats import normaltest
 from scipy.stats import chi2_contingency
@@ -9,6 +10,17 @@ from scipy.stats import spearmanr
 from scipy.stats import kendalltau
 
 class TestResult:
+
+    def add_result(hypothesis, result, alpha, ci, test, alternative):
+        result["p-value"]=round(test[1],5)
+        result[str((1-alpha)*100)+"% percente confidence interval"]=[round(ci[0],5), round(ci[1],5)]
+        result["H0 - null hypothesis"]=hypothesis[alternative+'_H0']
+        result["H1 - alternative hypothesis"]=hypothesis[alternative+'_H1']
+        # interpret via p-value
+        print(f'p-value = {result["p-value"]}')
+        print(f'alpha = {alpha}')
+        if test[1]> alpha:
+            print(f'Accept null hypothesis')
 
     def __init__(self, statistic, p_value, significance, test, result, report):
         """ 
@@ -65,7 +77,7 @@ class Tester:
                                                                    'spearman':spearmanr,
                                                                    'kendalltau':kendalltau}}
 
-    def correlation_test(self, col1, col2, significance = 0.05, test = 'default', binary = ''):
+    def correlation_test(self, sample1, sample2, alpha = 0.05, alternative = 'two-sided', method = None, binary = ''):
         """
         Tests the null hypothesis that there is no correlation between quantitative samples (col2,col2)
         
@@ -86,42 +98,49 @@ class Tester:
     	-------
         TestResult
         """
+        sample1, sample2 = np.array(sample1), np.array(sample1) 
+        np_types = [np.dtype(i) for i in [np.int32, np.int64, np.float32, np.float64]]
+        sample1_dtypes, sample2_dtypes = sample1.dtype, sample2.dtype 
+        if any([not t in np_types for t in [sample1_dtypes, sample2_dtypes]]):
+            raise Exception('Non numerical variables... Try using categorical_test method instead.')
+
         report = ""
-        if test == 'default':
+        if not method:
             if binary == 'yes':
                 check = True
             elif binary == 'no':
                 check = False
             else:
-                check1 = self.check_binary(col1)
-                check2 = self.check_binary(col2)
+                check1 = self.check_binary(sample1)
+                check2 = self.check_binary(sample2)
                 check = check1 and check2
 
             if check:
                 report += "Samples are binary, Pearson correlation is going to be applied (Point-biserial). "
-                return self.correlation(col1, col2, 'pearson', significance, report)
+                return self.correlation(sample1, sample2, 'pearson', alpha, report, alternative)
             else:
-                check1 = self.normality_test(col1).result
-                check2 = self.normality_test(col2).result
+                check1 = self.normality_test(sample1).result
+                check2 = self.normality_test(sample2).result
                 check = check1 and check2
                 if check:
                     report += "Samples have normal distribution. "
-                    return self.correlation(col1, col2, 'pearson', significance, report)
+                    return self.correlation(sample1, sample2, 'pearson', alpha, report, alternative)
                 else:
                     report += "Samples do not have normal distribution. "
-                    return self.correlation(col1, col2, 'spearman', significance, report)
+                    return self.correlation(sample1, sample2, 'spearman', alpha, report, alternative)
         else:
-            return self.correlation(col1, col2, test, significance, report)
+            return self.correlation(sample1, sample2, method, alpha, report, alternative)
 
-    def correlation(self, col1, col2, test, significance, report):
-        statistic, p_value = self.selectors['correlation_test'][test](col1, col2)
-        result = True if p_value < significance else False
+    def correlation(self, sample1, sample2, method, alpha, report, alternative):
+        df = pg.corr(sample1, sample2, method = method, tail = alternative)
+        result = True if df['p-val'][0] < alpha else False
         if result:
             report += "The alternative hypothesis is accepted, thus there is correlation between the samples. "
         else:
             report += "The null hypothesis is accepted, thus there is no correlation between the samples. " 
-        report += "Significance level considered = {},  test applied = {}, p-value = {}, test statistic = {}. ".format(significance, test, p_value, statistic)
-        return TestResult(statistic, p_value, significance, test, result, report)
+        report += "Significance level considered = {},  test applied = {}, p-value = {}, test statistic = {}. ".format(alpha, method, df['p-val'][0], df['r'][0])
+        df['report'] = report
+        return df
 
     def check_binary(self, col):
         for data in col:
@@ -129,7 +148,7 @@ class Tester:
                 return False
         return True
 
-    def categorical_test(self, col1, col2, significance = 0.05, test = 'default'):
+    def categorical_test(self, sample1, sample2, alpha = 0.05, test = 'default'):
         """
         Tests the null hypothesis that the categorical samples (col1,col2) are not dependent
         
@@ -148,6 +167,12 @@ class Tester:
     	-------
         TestResult
         """
+        sample1, sample2 = np.array(sample1), np.array(sample1) 
+
+        np_types = [np.dtype(i) for i in [np.int32, np.int64, np.float32, np.float64]]
+        sample1_dtypes, sample2_dtypes = sample1.dtype, sample2.dtype 
+        if any([t in np_types for t in [sample1_dtypes, sample2_dtypes]]):
+            raise Exception('Non numerical variables... Try using categorical_test method instead.')
 
         contigency_table = pd.crosstab(col1, col2)
         normality_condition = True
