@@ -1,6 +1,8 @@
+from os import stat
 import pandas as pd
 import numpy as np
 import pingouin as pg
+import warnings
 from scipy.stats import shapiro
 from scipy.stats import normaltest
 from scipy.stats import chi2_contingency
@@ -22,7 +24,7 @@ class TestResult:
         if test[1]> alpha:
             print(f'Accept null hypothesis')
 
-    def __init__(self, statistic, p_value, significance, test, result, report):
+    def __init__(self, statistic, p_value, alpha, test, result, report):
         """ 
         Constructor
 
@@ -32,7 +34,7 @@ class TestResult:
                                      test statistics
             p-value :           float
                                      test's p-value
-            significance :   float
+            alpha :   float
                                      significance level considered
             test :                 string
                                      test applied
@@ -48,13 +50,13 @@ class TestResult:
 
         self.statistic = statistic
         self.p_value = p_value
-        self.significance = significance
+        self.alpha = alpha
         self.test = test
         self.result = result
         self.report = report
 
     def __str__(self):
-        return "statistic = {}\n p-value = {}\n sigificance = {}\n test = {}\n result = {}\n report: {}".format(self.statistic,self.p_value,self.significance,self.test,self.result,self.report)
+        return "statistic = {}\n p-value = {}\n sigificance = {}\n test = {}\n result = {}\n report: {}".format(self.statistic,self.p_value,self.alpha,self.test,self.result,self.report)
 
 class Tester:
 
@@ -79,15 +81,15 @@ class Tester:
 
     def correlation_test(self, sample1, sample2, alpha = 0.05, alternative = 'two-sided', method = None, binary = ''):
         """
-        Tests the null hypothesis that there is no correlation between quantitative samples (col2,col2)
+        Tests the null hypothesis that there is no correlation between quantitative samples (sample1,sample2)
         
     	Parameters
     	----------            
-        col1 : array_like
+        sample1 : array_like
                   Array of sample data, must be quantitative data.
-        col1 : array_like
+        sample2 : array_like
                   Array of sample data, must be quantitative data.
-        significance : float
+        alpha : float
                                level of significance (default = 0.05)
         test : string
                  correlation test to be applied
@@ -148,82 +150,101 @@ class Tester:
                 return False
         return True
 
-    def categorical_test(self, sample1, sample2, alpha = 0.05, test = 'default'):
+    def categorical_test(self, data, sample1, sample2, alpha = 0.05, method = None):
         """
-        Tests the null hypothesis that the categorical samples (col1,col2) are not dependent
+        Tests the null hypothesis that the categorical samples (sample1,sample2) are not dependent
         
     	Parameters
     	----------            
-        col1 : array_like
-                  Array of sample data, must be categorical data.
-        col1 : array_like
-                  Array of sample data, must be categorical data.
-        significance : float
-                               level of significance (default = 0.05)
-        test : string
-                 test to be applied
+        data : pandas.DataFrame
+                The dataframe containing the ocurrences for the test.
+        sample1, sample2 : string
+                The variables names for the Chi-squared test. Must be names of columns in ``data``.
+        alpha : float
+                level of significance (default = 0.05)
+        method : string
+                test to be applied
                     
     	Returns
     	-------
         TestResult
         """
-        sample1, sample2 = np.array(sample1), np.array(sample1) 
-
-        np_types = [np.dtype(i) for i in [np.int32, np.int64, np.float32, np.float64]]
-        sample1_dtypes, sample2_dtypes = sample1.dtype, sample2.dtype 
-        if any([t in np_types for t in [sample1_dtypes, sample2_dtypes]]):
-            raise Exception('Non numerical variables... Try using categorical_test method instead.')
-
-        contigency_table = pd.crosstab(col1, col2)
-        normality_condition = True
+        sample1_array, sample2_array = data[sample1], data[sample2]
         report = ""
-        if test == 'default':
-            for row in contigency_table.iloc:
-                for data in row:
-                    if data <= 5:
-                        normality_condition = False
-                        report += "Normality condition not satisfied (observed and expected frequency in some cell of contigency table <= 5). Chi2 may not be valid. "
-                        break
-                else:
-                    continue
-                break
-            if  normality_condition:
-                report += "Normality condition is satisfied. "
-                return self.categorical(contigency_table, 'chi2', significance, report)
+        if not method:
+            if len(sample1_array.unique()) == 2 and len(sample2_array.unique()) == 2:
+                table = pd.crosstab(sample1_array, sample2_array)
+                statistic, p_value = fisher_exact(table)
+                self.categorical('fisher exact', statistic, p_value, alpha, report)
+                return pd.DataFrame([('fisher exact', statistic, p_value)], columns = ['test', 'statistic', 'p_value'])
             else:
-                shape = np.shape(contigency_table)
-                if shape[0] == 2 and shape[1] == 2:
-                    fisher = self.categorical(contigency_table, 'fisher_exact', significance, report)
-                    fisher.chi2 = self.categorical(contigency_table, 'chi2', significance, report)
-                    fisher.report += "To view chi2 results check the chi2 attribute (TestResult.chi2)"
-                    return fisher
-                else:
-                    report += "Contigency table is not 2x2, Fisher exact cannot be used. "
-                    return self.categorical(contigency_table, 'chi2', significance, report)
+                if (data.groupby([sample1, sample2]).size() <= 5).sum():
+                    warnings.warn("Warning: Algum valor esperado é menor do que 5. O teste pode ser inválido")
+                expected, observed, stats = pg.chi2_independence(data, sample1, sample2)
+                print("Expected Distribution")
+                pg.print_table(expected.reset_index())
+                print("Observed Distribution")
+                pg.print_table(observed.reset_index())
+                print("Statistics")
+                p_value = stats.loc[stats['test'] == 'pearson']['pval'][0]
+                statistic = stats.loc[stats['test'] == 'pearson']['chi2'][0]
+                self.categorical('pearson chi-squared', statistic, p_value, alpha, report)
+                return stats
+        elif method == 'fisher':
+            if not (len(sample1_array.unique()) == 2 and len(sample2_array.unique()) == 2):
+                warnings.warn("Contigency table is not 2x2, Fisher exact cannot be used.")
+                if (data.groupby([sample1, sample2]).size() <= 5).sum():
+                    warnings.warn("Warning: Algum valor esperado é menor do que 5. O teste pode ser inválido")
+                expected, observed, stats = pg.chi2_independence(data, sample1, sample2)
+                print("Expected Distribution")
+                pg.print_table(expected.reset_index())
+                print("Observed Distribution")
+                pg.print_table(observed.reset_index())
+                print("Statistics")
+                p_value = stats.loc[stats['test'] == 'pearson']['pval'][0]
+                statistic = stats.loc[stats['test'] == 'pearson']['chi2'][0]
+                self.categorical('pearson chi-squared', statistic, p_value, alpha, report)
+                return stats
+            else:
+                table = pd.crosstab(sample1_array, sample2_array)
+                statistic, p_value = fisher_exact(table)
+                self.categorical('fisher exact', statistic, p_value, alpha, report)
+                return pd.DataFrame([('fisher exact', statistic, p_value)], columns = ['test', 'statistic', 'p_value'])
+        elif method == 'chi2':
+            if (data.groupby([sample1, sample2]).size() <= 5).sum():
+                    warnings.warn("Warning: Algum valor esperado é menor do que 5. O teste pode ser inválido")
+            expected, observed, stats = pg.chi2_independence(data, sample1, sample2)
+            print("Expected Distribution")
+            pg.print_table(expected.reset_index())
+            print("Observed Distribution")
+            pg.print_table(observed.reset_index())
+            print("Statistics")
+            p_value = stats.loc[stats['test'] == 'pearson']['pval'][0]
+            statistic = stats.loc[stats['test'] == 'pearson']['chi2'][0]
+            self.categorical('pearson chi-squared', statistic, p_value, alpha, report)
+            return stats
         else:
-            return self.categorical(contigency_table, test, significance, report)
+            raise Exception('Invalid method. Choose one of `fisher` or `chi2`.')
                 
-    def categorical(self, contigency_table, test, significance, report):
-        output = self.selectors['compare_2_categorical'][test](contigency_table)
-        statistic, p_value = output[0], output[1]
-        result = True if p_value < significance else False
-        if result:
-            report += "The alternative hypothesis is accepted, thus there is a dependency between the samples. "
+    def categorical(self, method, statistic, p_value, alpha, report):
+        if p_value < alpha:
+            report += "The null hypothesis is rejected, thus there is evidence of dependency between the samples"
         else:
-            report += "The null hypothesis is accepted, thus the two samples are independent. " 
-        report += "Significance level considered = {},  test applied = {}, p-value = {}, test statistic = {}. ".format(significance, test, p_value, statistic)
-        return TestResult(statistic, p_value, significance, test, result, report)
+            report += "The null hypothesis is not rejected, thus there is no evidence of dependency between the samples"
+        report += " \nTest applied = {} \nSignificance level = {} \np-value = {} \nTest Statistic = {}. ".format(method, alpha, p_value, statistic)
+        print(report)
+        print()
         
 
-    def normality_test(self, col1, significance = 0.05, test = 'shapiro-wilk'):
+    def normality_test(self, sample, alpha = 0.05, test = 'shapiro-wilk'):
         """
         Tests the null hypothesis that the data was drawn from a normal distribution
         
     	Parameters
     	----------            
-        col1 : array_like
+        sample : array_like
                   Array of sample data.
-        significance : float
+        alpha : float
                                level of significance (default = 0.05)
         test : string
                  normality test to be applied
@@ -233,15 +254,15 @@ class Tester:
         TestResult
         """
         report = ""
-        if test == 'dagostinos' and len(col1) < 20:
+        if test == 'dagostinos' and len(sample) < 20:
             report += "Warning!!! Test only valid for n>=20 (n = number of samples in data). "
 
-        statistic, p_value = self.selectors['normality_test'][test](col1)
-        result = True if p_value >= significance else False
+        statistic, p_value = self.selectors['normality_test'][test](sample)
+        result = True if p_value >= alpha else False
         if result:
             report += "The null hypothesis is accepted, thus the data was  drawn from a normal distribution"
         else:
             report += "The alternative hypothesis is accepted, thus the data was not  drawn from a normal distribution. "
-        report += "Significance level considered = {},  test applied = {}, p-value = {}, test statistic = {}".format(significance, test, p_value, statistic)
-        return TestResult(statistic, p_value, significance, test, result, report)
+        report += "Significance level considered = {},  test applied = {}, p-value = {}, test statistic = {}".format(alpha, test, p_value, statistic)
+        return TestResult(statistic, p_value, alpha, test, result, report)
     
